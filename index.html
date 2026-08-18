@@ -50,36 +50,30 @@
     <div id="startScreen">
       <div style="font-size:40px">🎹👣</div>
       <h1>Piano na Tela</h1>
-      <p>Aponte a câmera pro chão e cubra o ponto de cada tecla com o pé ou o dedo. Use "Girar teclado" para deixar as teclas na horizontal.</p>
+      <p>Aponte a câmera pro chão. A ponta do pé/dedo que encostar no ponto da tecla toca a nota. Use "Girar 90°" para posicionar o teclado.</p>
       <button id="startBtn">Ligar a câmera</button>
       <p id="startErr" style="color:#f87171;font-size:13px;white-space:pre-wrap;max-width:360px;margin:0"></p>
-      <p style="opacity:.45;font-size:11px;margin:0">versão 6 · tela cheia + girar teclado</p>
+      <p style="opacity:.45;font-size:11px;margin:0">versão 7 · detecção de ponta + girar 90°</p>
     </div>
   </div>
 
   <div id="bar">
     <div class="row">
-      <div class="pill">Oitava: <b id="octLabel">4</b></div>
+      <div class="pill">Giro: <b id="rotLabel">0°</b></div>
       <div class="pill">Nota: <b id="playingLabel">—</b></div>
     </div>
     <div class="row">
       <label style="flex:1">Sensibilidade
-        <input type="range" id="sens" min="15" max="90" value="42">
+        <input type="range" id="sens" min="12" max="90" value="34">
       </label>
     </div>
     <div class="row">
-      <label style="flex:1;display:flex;align-items:center;gap:10px;color:var(--text)">
-        <input type="checkbox" id="mono" checked style="width:20px;height:20px;accent-color:var(--accent)">
-        Uma nota por vez (evita tocar duas)
-      </label>
-    </div>
-    <div class="row">
-      <button class="sec" id="rot">⟳ Girar teclado</button>
+      <button class="sec" id="rot">⟳ Girar 90°</button>
       <button class="sec" id="rebg">Refazer fundo</button>
     </div>
     <div class="row">
       <button class="sec oct" id="octDown">–</button>
-      <div class="pill" style="flex:1">use – / + para trocar a oitava</div>
+      <div class="pill" style="flex:1">Oitava: <b id="octLabel">4</b> · use – / +</div>
       <button class="sec oct" id="octUp">+</button>
     </div>
   </div>
@@ -120,66 +114,50 @@ function noteOff(id){
   v.oscs.forEach(o=>o.stop(now+0.2));
   delete activeVoices[id];
 }
-function allOff(){ for(const k in activeVoices) noteOff(k); monoCurrent=null; }
+function allOff(){ for(const k in activeVoices) noteOff(k); current=null; }
 
-/* ================= Câmera / detecção ================= */
+/* ================= base / estado ================= */
 const canvas=document.getElementById('canvas');
 const ctx=canvas.getContext('2d',{willReadFrequently:true});
 const video=document.createElement('video');
 video.setAttribute('playsinline',''); video.muted=true;
 
-let stream=null, running=false, sensitivity=42, monoCurrent=null;
-const SAMPLE=11;
-let octaveBase=4;
-let rot=false, rotAuto=true, lastRot=null;
+let stream=null, running=false, sensitivity=34, current=null;
+let octaveBase=4, rotStep=0;
 
-/* modelo do teclado */
+/* teclado lógico: 7 brancas + 5 pretas, ordem Dó..Si preservada */
+const LW=7, LH=2.4;
 const WHITE=[{semi:0,name:'Dó'},{semi:2,name:'Ré'},{semi:4,name:'Mi'},
              {semi:5,name:'Fá'},{semi:7,name:'Sol'},{semi:9,name:'Lá'},{semi:11,name:'Si'}];
 const BLACK=[{semi:1,after:0,name:'Dó#'},{semi:3,after:1,name:'Ré#'},
              {semi:6,after:3,name:'Fá#'},{semi:8,after:4,name:'Sol#'},{semi:10,after:5,name:'Lá#'}];
 const keys=[];
-WHITE.forEach((w,i)=>keys.push({id:'w'+i,semi:w.semi,name:w.name,black:false,wi:i,
-  baseline:null,pressed:false,lastChange:0,delta:0,_snd:false,x:0,y:0,x0:0,y0:0,x1:0,y1:0}));
-BLACK.forEach((b,j)=>keys.push({id:'b'+j,semi:b.semi,name:b.name,black:true,after:b.after,
-  baseline:null,pressed:false,lastChange:0,delta:0,_snd:false,x:0,y:0,x0:0,y0:0,x1:0,y1:0}));
+WHITE.forEach((w,i)=>keys.push({id:'w'+i,semi:w.semi,name:w.name,black:false,wi:i,_snd:false}));
+BLACK.forEach((b,j)=>keys.push({id:'b'+j,semi:b.semi,name:b.name,black:true,after:b.after,_snd:false}));
 function keyMidi(k){ return 12*(octaveBase+1)+k.semi; }
 function keyLabel(k){ return k.name+octaveBase; }
+for(const k of keys){
+  if(!k.black){ k.lx0=k.wi; k.lx1=k.wi+1; k.ly0=0; k.ly1=LH; k.ltx=k.wi+0.5; k.lty=LH*0.66; }
+  else{ const c=k.after+1, bw=0.62; k.lx0=c-bw/2; k.lx1=c+bw/2; k.ly0=0; k.ly1=LH*0.58; k.ltx=c; k.lty=LH*0.30; }
+}
 
-/* geometria: modo normal (colunas) ou girado (linhas) */
+let board={scale:1,cos:1,sin:0,cx:0,cy:0};
+function Tp(lx,ly){
+  const b=board, x=lx-LW/2, y=ly-LH/2;
+  return { x:b.cx+(x*b.cos - y*b.sin)*b.scale, y:b.cy+(x*b.sin + y*b.cos)*b.scale };
+}
 function layout(){
   const W=canvas.width, H=canvas.height;
-  if(!rot){
-    const mx=Math.round(W*0.02), top=Math.round(H*0.08), bot=Math.round(H*0.97);
-    const ww=(W-2*mx)/7, span=bot-top, bw=ww*0.62;
-    for(const k of keys){
-      if(!k.black){ k.x0=mx+k.wi*ww; k.x1=k.x0+ww; k.y0=top; k.y1=bot;
-        k.x=Math.round(k.x0+ww/2); k.y=Math.round(top+span*0.75); }
-      else{ const cx=mx+(k.after+1)*ww; k.x0=cx-bw/2; k.x1=cx+bw/2; k.y0=top; k.y1=Math.round(top+span*0.56);
-        k.x=Math.round(cx); k.y=Math.round(top+span*0.30); }
-    }
-  }else{
-    const my=Math.round(H*0.02), lft=Math.round(W*0.03), rgt=Math.round(W*0.97);
-    const rh=(H-2*my)/7, span=rgt-lft, bh=rh*0.62;
-    for(const k of keys){
-      if(!k.black){ k.y0=my+k.wi*rh; k.y1=k.y0+rh; k.x0=lft; k.x1=rgt;
-        k.x=Math.round(lft+span*0.72); k.y=Math.round(k.y0+rh/2); }
-      else{ const cy=my+(k.after+1)*rh; k.y0=cy-bh/2; k.y1=cy+bh/2; k.x0=lft; k.x1=Math.round(lft+span*0.56);
-        k.x=Math.round(lft+span*0.28); k.y=Math.round(cy); }
-    }
+  const th=rotStep*Math.PI/2, cos=Math.round(Math.cos(th)), sin=Math.round(Math.sin(th));
+  const bw=(rotStep%2===0)?LW:LH, bh=(rotStep%2===0)?LH:LW;
+  const scale=Math.min(W*0.97/bw, H*0.90/bh);
+  board={scale,cos,sin,cx:W/2,cy:H/2};
+  for(const k of keys){
+    const t=Tp(k.ltx,k.lty); k.x=t.x; k.y=t.y;
+    k.rk=(k.black?0.30:0.42)*scale;
+    k.c0=Tp(k.lx0,k.ly0); k.c1=Tp(k.lx1,k.ly0); k.c2=Tp(k.lx1,k.ly1); k.c3=Tp(k.lx0,k.ly1);
   }
 }
-
-function sampleColor(cx,cy){
-  const x=Math.max(0,Math.min(canvas.width-1,cx))|0, y=Math.max(0,Math.min(canvas.height-1,cy))|0;
-  const x0=Math.max(0,x-SAMPLE), y0=Math.max(0,y-SAMPLE);
-  const w=Math.min(canvas.width-x0,SAMPLE*2), hh=Math.min(canvas.height-y0,SAMPLE*2);
-  const d=ctx.getImageData(x0,y0,w,hh).data;
-  let r=0,g=0,b=0,n=0;
-  for(let i=0;i<d.length;i+=4){r+=d[i];g+=d[i+1];b+=d[i+2];n++;}
-  return {r:r/n,g:g/n,b:b/n};
-}
-function colorDist(a,b){const dr=a.r-b.r,dg=a.g-b.g,db=a.b-b.b;return Math.sqrt(dr*dr+dg*dg+db*db);}
 
 /* ================= câmera ================= */
 function showErr(m){const el=document.getElementById('startErr'); if(el) el.textContent=m;}
@@ -210,29 +188,18 @@ async function start(){
   window.addEventListener('orientationchange',()=>setTimeout(onResize,300));
   running=true; updateHint(); loop();
 }
-function decideRot(){
-  const v=document.getElementById('view');
-  if(rotAuto) rot = v.clientHeight > v.clientWidth;
-}
 function sizeCanvas(){
   const v=document.getElementById('view');
-  let W=v.clientWidth, H=v.clientHeight;
-  if(!W||!H) return;
-  const cap=960, s=Math.min(1,cap/Math.max(W,H));
-  canvas.width=Math.max(4,Math.round(W*s));
-  canvas.height=Math.max(4,Math.round(H*s));
+  let W=v.clientWidth, H=v.clientHeight; if(!W||!H) return;
+  const cap=780, s=Math.min(1,cap/Math.max(W,H));
+  canvas.width=Math.max(4,Math.round(W*s)); canvas.height=Math.max(4,Math.round(H*s));
 }
-function resetBaselines(){ keys.forEach(k=>{k.baseline=null;k.pressed=false;}); allOff(); }
-function onResize(){
-  decideRot(); sizeCanvas(); layout();
-  if(rot!==lastRot){ resetBaselines(); lastRot=rot; }
-}
+function onResize(){ sizeCanvas(); layout(); bg=null; }
 function updateHint(){
   document.getElementById('hint').innerHTML=
-    '<b>Cubra o ponto</b> de cada tecla com o pé/dedo · pretas: alvo de um lado, brancas do outro · "Refazer fundo" após posicionar.';
+    '<b>Ponta do pé/dedo</b> no ponto da tecla = toca. Aponte pro chão, fique parado e toque "Refazer fundo".';
 }
 
-/* desenha o vídeo preenchendo o canvas (corta o excedente, sem distorcer) */
 function drawVideoCover(){
   const vw=video.videoWidth, vh=video.videoHeight; if(!vw||!vh) return;
   const cw=canvas.width, ch=canvas.height;
@@ -241,109 +208,110 @@ function drawVideoCover(){
   ctx.drawImage(video, sx,sy,sw,sh, 0,0,cw,ch);
 }
 
+/* ============ detecção de PONTA (subtração de fundo) ============ */
+let bg=null, bgW=0, bgH=0, step=6;
+function resetBg(){ bg=null; }
+function processFrame(){
+  const W=canvas.width, H=canvas.height;
+  step=Math.max(4, Math.round(W/150));
+  const gw=Math.floor(W/step), gh=Math.floor(H/step);
+  const img=ctx.getImageData(0,0,W,H).data;
+  if(!bg || bgW!==gw || bgH!==gh){
+    bg=new Float32Array(gw*gh); bgW=gw; bgH=gh;
+    for(let j=0;j<gh;j++)for(let i=0;i<gw;i++){const px=((j*step)*W+(i*step))*4;
+      bg[j*gw+i]=0.299*img[px]+0.587*img[px+1]+0.114*img[px+2];}
+    return null;
+  }
+  const thr=sensitivity; let sx=0,sy=0,cnt=0; const px=[],py=[];
+  for(let j=0;j<gh;j++)for(let i=0;i<gw;i++){
+    const p=((j*step)*W+(i*step))*4;
+    const g=0.299*img[p]+0.587*img[p+1]+0.114*img[p+2];
+    const idx=j*gw+i, d=Math.abs(g-bg[idx]);
+    if(d>thr){ const X=i*step,Y=j*step; px.push(X);py.push(Y); sx+=X;sy+=Y;cnt++; }
+    else bg[idx]+=(g-bg[idx])*0.05;
+  }
+  if(cnt < Math.max(10, gw*gh*0.0015)) return null;
+  const cxm=sx/cnt, cym=sy/cnt;
+  let tipX=cxm,tipY=cym,best=-1;
+  for(let p=0;p<px.length;p++){const dx=px[p]-cxm,dy=py[p]-cym,dd=dx*dx+dy*dy; if(dd>best){best=dd;tipX=px[p];tipY=py[p];}}
+  return {x:tipX,y:tipY,cnt};
+}
+function activeKeyForTip(tip){
+  if(!tip) return null;
+  let best=null,bd=Infinity;
+  for(const k of keys){const d=Math.hypot(k.x-tip.x,k.y-tip.y); if(d<k.rk && d<bd){bd=d;best=k;}}
+  return best;
+}
+function applyTip(tip){
+  const ak=activeKeyForTip(tip);
+  const id=ak?ak.id:null;
+  if(id!==current){ if(current) noteOff(current); if(id) noteOn(id,keyMidi(ak)); current=id; }
+  for(const k of keys) k._snd=(k===ak);
+  return ak;
+}
+
 /* ================= loop ================= */
-let frames=0,fpsT=0;
+let frames=0,fpsT=0,lastTip=null;
 function loop(){
   if(!running) return;
   drawVideoCover();
   layout();
-  const now=performance.now();
-  const pressThresh=sensitivity, releaseThresh=Math.max(8,sensitivity*0.55);
-  const mono=document.getElementById('mono').checked;
-
-  for(const k of keys){
-    const c=sampleColor(k.x,k.y);
-    if(!k.baseline){ k.baseline={r:c.r,g:c.g,b:c.b}; }
-    const dist=colorDist(c,k.baseline);
-    k.delta=dist; k._snd=false;
-    if(!k.pressed){
-      k.baseline.r+=(c.r-k.baseline.r)*0.04; k.baseline.g+=(c.g-k.baseline.g)*0.04; k.baseline.b+=(c.b-k.baseline.b)*0.04;
-      if(dist>pressThresh && now-k.lastChange>50){k.pressed=true;k.lastChange=now;}
-    }else{
-      if(dist<releaseThresh && now-k.lastChange>50){k.pressed=false;k.lastChange=now;}
-    }
-  }
-
-  let playingLabel='—';
-  if(mono){
-    let target=null,bd=0;
-    for(const k of keys){ if(k.pressed && k.delta>bd){bd=k.delta;target=k;} }
-    const tid=target?target.id:null;
-    if(tid!==monoCurrent){ if(monoCurrent) noteOff(monoCurrent); if(tid) noteOn(tid,keyMidi(target)); monoCurrent=tid; }
-    if(target){ target._snd=true; playingLabel=keyLabel(target); }
-  }else{
-    for(const k of keys){
-      if(k.pressed && !activeVoices[k.id]) noteOn(k.id,keyMidi(k));
-      else if(!k.pressed && activeVoices[k.id]) noteOff(k.id);
-      k._snd=k.pressed;
-      if(k._snd) playingLabel=keyLabel(k);
-    }
-  }
-  document.getElementById('playingLabel').textContent=playingLabel;
-
+  const tip=processFrame(); lastTip=tip;
+  applyTip(tip);
+  document.getElementById('playingLabel').textContent = current ? keyLabel(keys.find(k=>k.id===current)) : '—';
   drawKeyboard();
-
-  frames++;
+  if(tip) drawTip(tip);
+  const now=performance.now(); frames++;
   if(now-fpsT>1000){document.getElementById('fps').textContent=frames+' fps';frames=0;fpsT=now;}
   requestAnimationFrame(loop);
 }
 
+function poly(k){ ctx.beginPath(); ctx.moveTo(k.c0.x,k.c0.y); ctx.lineTo(k.c1.x,k.c1.y);
+  ctx.lineTo(k.c2.x,k.c2.y); ctx.lineTo(k.c3.x,k.c3.y); ctx.closePath(); }
 function drawKeyboard(){
-  ctx.textAlign='center'; ctx.textBaseline='alphabetic';
+  ctx.lineWidth=2;
   for(const k of keys){ if(k.black) continue;
-    if(k._snd){ ctx.fillStyle='rgba(244,114,182,0.28)'; ctx.strokeStyle='#f472b6'; }
-    else if(k.pressed){ ctx.fillStyle='rgba(148,163,184,0.22)'; ctx.strokeStyle='#94a3b8'; }
-    else { ctx.fillStyle='rgba(244,246,255,0.13)'; ctx.strokeStyle='rgba(255,255,255,0.65)'; }
-    ctx.lineWidth=2; roundRect(k.x0+2,k.y0+2,(k.x1-k.x0)-4,(k.y1-k.y0)-4,10); ctx.fill(); ctx.stroke();
-    drawLabel(k); drawTarget(k,false);
+    ctx.fillStyle = k._snd?'rgba(244,114,182,0.72)':'rgba(245,247,255,0.60)';
+    ctx.strokeStyle='rgba(30,34,52,0.85)';
+    poly(k); ctx.fill(); ctx.stroke();
+    drawLabel(k,'#1a1e33'); drawTarget(k);
   }
   for(const k of keys){ if(!k.black) continue;
-    if(k._snd){ ctx.fillStyle='rgba(244,114,182,0.55)'; ctx.strokeStyle='#f472b6'; }
-    else if(k.pressed){ ctx.fillStyle='rgba(120,130,150,0.55)'; ctx.strokeStyle='#94a3b8'; }
-    else { ctx.fillStyle='rgba(11,13,22,0.60)'; ctx.strokeStyle='rgba(255,255,255,0.35)'; }
-    ctx.lineWidth=2; roundRect(k.x0,k.y0,k.x1-k.x0,k.y1-k.y0,7); ctx.fill(); ctx.stroke();
-    drawLabel(k); drawTarget(k,true);
+    ctx.fillStyle = k._snd?'rgba(244,114,182,0.78)':'rgba(70,74,86,0.72)';
+    ctx.strokeStyle='rgba(255,255,255,0.35)';
+    poly(k); ctx.fill(); ctx.stroke();
+    drawLabel(k,'#e8eaf2'); drawTarget(k);
   }
 }
-function drawLabel(k){
-  ctx.fillStyle=k.black?'#e8eaf2':'#fff';
-  ctx.font='bold '+(k.black?12:14)+'px system-ui';
-  if(!rot){
-    ctx.textAlign='center';
-    if(k.black) ctx.fillText(keyLabel(k), k.x, k.y-SAMPLE-8);
-    else ctx.fillText(keyLabel(k), k.x, k.y1-10);
-  }else{
-    ctx.textAlign='left';
-    ctx.fillText(keyLabel(k), k.x0+10, (k.y0+k.y1)/2+5);
-  }
+function drawLabel(k,color){
+  ctx.fillStyle=color; ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.font='bold '+(k.black?11:14)+'px system-ui';
+  ctx.fillText(keyLabel(k), k.x, k.y - k.rk - (k.black?8:10));
 }
-function drawTarget(k,black){
-  const r=black?SAMPLE+4:SAMPLE+8;
-  if(k._snd){ ctx.fillStyle='rgba(244,114,182,0.6)'; ctx.strokeStyle='#f472b6'; }
-  else { ctx.fillStyle='rgba(94,234,212,0.18)'; ctx.strokeStyle=black?'#5eead4':'#ffffff'; }
-  ctx.lineWidth=3; ctx.beginPath(); ctx.arc(k.x,k.y,r,0,Math.PI*2); ctx.fill(); ctx.stroke();
+function drawTarget(k){
+  ctx.lineWidth=3;
+  ctx.fillStyle = k._snd?'rgba(244,114,182,0.55)':'rgba(94,234,212,0.16)';
+  ctx.strokeStyle = k._snd?'#f472b6':'#5eead4';
+  ctx.beginPath(); ctx.arc(k.x,k.y,k.rk,0,Math.PI*2); ctx.fill(); ctx.stroke();
   ctx.fillStyle=k._snd?'#fff':'#5eead4'; ctx.beginPath(); ctx.arc(k.x,k.y,4,0,Math.PI*2); ctx.fill();
 }
-function roundRect(x,y,w,h,r){
-  r=Math.min(r,w/2,h/2);
-  ctx.beginPath();
-  ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r);
-  ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath();
+function drawTip(t){
+  ctx.strokeStyle='#facc15'; ctx.lineWidth=3;
+  ctx.beginPath(); ctx.arc(t.x,t.y,10,0,Math.PI*2); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(t.x-16,t.y); ctx.lineTo(t.x+16,t.y);
+  ctx.moveTo(t.x,t.y-16); ctx.lineTo(t.x,t.y+16); ctx.stroke();
 }
 
 /* ================= controles ================= */
-function setOctave(o){
-  octaveBase=Math.max(1,Math.min(6,o));
-  document.getElementById('octLabel').textContent=octaveBase;
-  allOff();
-}
+function setOctave(o){ octaveBase=Math.max(1,Math.min(6,o));
+  document.getElementById('octLabel').textContent=octaveBase; allOff(); }
 document.getElementById('startBtn').onclick=start;
 document.getElementById('octDown').onclick=()=>setOctave(octaveBase-1);
 document.getElementById('octUp').onclick=()=>setOctave(octaveBase+1);
-document.getElementById('rebg').onclick=()=>{ resetBaselines(); };
-document.getElementById('rot').onclick=()=>{ rotAuto=false; rot=!rot; layout(); resetBaselines(); lastRot=rot; };
+document.getElementById('rebg').onclick=()=>{ resetBg(); allOff(); };
+document.getElementById('rot').onclick=()=>{ rotStep=(rotStep+1)%4; layout();
+  document.getElementById('rotLabel').textContent=(rotStep*90)+'°'; };
 document.getElementById('sens').oninput=e=>{sensitivity=parseInt(e.target.value);};
-document.getElementById('mono').onchange=allOff;
 </script>
 </body>
 </html>
