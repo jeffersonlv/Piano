@@ -53,7 +53,7 @@
       <p>Aponte a câmera pro chão. Cada bolinha é um sensor: cobriu a bolinha com o pé/dedo, a nota toca. Use "Girar 90°" para posicionar.</p>
       <button id="startBtn">Ligar a câmera</button>
       <p id="startErr" style="color:#f87171;font-size:13px;white-space:pre-wrap;max-width:360px;margin:0"></p>
-      <p style="opacity:.45;font-size:11px;margin:0">versão 10 · bolinhas iguais + base na borda</p>
+      <p style="opacity:.45;font-size:11px;margin:0">versão 11 · transposer</p>
     </div>
   </div>
 
@@ -79,8 +79,13 @@
     </div>
     <div class="row">
       <button class="sec oct" id="octDown">–</button>
-      <div class="pill" style="flex:1">Oitava: <b id="octLabel">4</b> · use – / +</div>
+      <div class="pill" style="flex:1">Oitava: <b id="octLabel">4</b></div>
       <button class="sec oct" id="octUp">+</button>
+    </div>
+    <div class="row">
+      <button class="sec oct" id="trDown">–</button>
+      <div class="pill" style="flex:1">Transpor: <b id="trLabel">0</b> semitons</div>
+      <button class="sec oct" id="trUp">+</button>
     </div>
   </div>
 </div>
@@ -129,7 +134,7 @@ const video=document.createElement('video');
 video.setAttribute('playsinline',''); video.muted=true;
 
 let stream=null, running=false, sensitivity=45, current=null;
-let octaveBase=4, rotStep=0;
+let octaveBase=4, rotStep=0, transpose=0;
 
 /* teclado lógico: 7 brancas + 5 pretas, ordem Dó..Si preservada */
 const LW=7, LH=2.4;
@@ -142,7 +147,7 @@ WHITE.forEach((w,i)=>keys.push({id:'w'+i,semi:w.semi,name:w.name,black:false,wi:
   baseline:null,pressed:false,lastChange:0,delta:0,_snd:false}));
 BLACK.forEach((b,j)=>keys.push({id:'b'+j,semi:b.semi,name:b.name,black:true,after:b.after,
   baseline:null,pressed:false,lastChange:0,delta:0,_snd:false}));
-function keyMidi(k){ return 12*(octaveBase+1)+k.semi; }
+function keyMidi(k){ return 12*(octaveBase+1)+k.semi+transpose; }
 function keyLabel(k){ return k.name+octaveBase; }
 for(const k of keys){
   if(!k.black){ k.lx0=k.wi; k.lx1=k.wi+1; k.ly0=0; k.ly1=LH; k.ltx=k.wi+0.5; k.lty=LH*0.66; }
@@ -159,18 +164,17 @@ function layout(){
   const th=rotStep*Math.PI/2, cos=Math.round(Math.cos(th)), sin=Math.round(Math.sin(th));
   const bw=(rotStep%2===0)?LW:LH, bh=(rotStep%2===0)?LH:LW;
   const scale=Math.min(W*0.97/bw, H*0.90/bh);
-  // ancora a BASE das teclas junto à borda (embaixo/lateral conforme o giro)
   const halfBase=(LH/2)*scale, m=Math.round(Math.min(W,H)*0.02)+4;
   let cx=W/2, cy=H/2;
-  if(rotStep===0) cy=H-m-halfBase;        // base embaixo
-  else if(rotStep===2) cy=m+halfBase;     // base em cima
-  else if(rotStep===1) cx=m+halfBase;     // base à esquerda
-  else if(rotStep===3) cx=W-m-halfBase;   // base à direita
+  if(rotStep===0) cy=H-m-halfBase;
+  else if(rotStep===2) cy=m+halfBase;
+  else if(rotStep===1) cx=m+halfBase;
+  else if(rotStep===3) cx=W-m-halfBase;
   board={scale,cos,sin,cx,cy};
   for(const k of keys){
     const t=Tp(k.ltx,k.lty); k.x=t.x; k.y=t.y;
-    k.rk=0.285*scale;                              // todas as bolinhas iguais (~95% da preta antiga)
-    k.sr=Math.max(5, Math.round(k.rk*0.85));       // raio de amostragem dentro da bolinha
+    k.rk=0.285*scale;
+    k.sr=Math.max(5, Math.round(k.rk*0.85));
     k.c0=Tp(k.lx0,k.ly0); k.c1=Tp(k.lx1,k.ly0); k.c2=Tp(k.lx1,k.ly1); k.c3=Tp(k.lx0,k.ly1);
   }
 }
@@ -239,7 +243,6 @@ function sampleCircle(cx,cy,rad){
   return {r:r/n,g:g/n,b:b/n};
 }
 function lum(c){return 0.299*c.r+0.587*c.g+0.114*c.b;}
-/* pontuação de mudança com SUPRESSÃO DE SOMBRA */
 let shadowTol=0.50;
 function changeScore(cur,base){
   const bl=lum(base)+1, cl=lum(cur)+1, ratio=cl/bl;
@@ -335,6 +338,10 @@ function setOctave(o){ octaveBase=Math.max(1,Math.min(6,o));
 document.getElementById('startBtn').onclick=start;
 document.getElementById('octDown').onclick=()=>setOctave(octaveBase-1);
 document.getElementById('octUp').onclick=()=>setOctave(octaveBase+1);
+function setTranspose(t){ transpose=Math.max(-12,Math.min(12,t));
+  document.getElementById('trLabel').textContent=(transpose>0?'+':'')+transpose; allOff(); }
+document.getElementById('trDown').onclick=()=>setTranspose(transpose-1);
+document.getElementById('trUp').onclick=()=>setTranspose(transpose+1);
 document.getElementById('rebg').onclick=()=>{ resetBaselines(); };
 document.getElementById('rot').onclick=()=>{ rotStep=(rotStep+1)%4; layout(); resetBaselines();
   document.getElementById('rotLabel').textContent=(rotStep*90)+'°'; };
