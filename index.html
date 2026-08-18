@@ -4,47 +4,41 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <meta name="theme-color" content="#0f1220">
-<title>Piano de Papel</title>
+<title>Piano na Tela</title>
 <style>
-  :root{
-    --bg:#0f1220; --panel:#1a1e33; --accent:#5eead4; --accent2:#f472b6;
-    --text:#e8eaf2; --muted:#9aa0be; --danger:#f87171;
-  }
+  :root{--bg:#0f1220;--panel:#1a1e33;--accent:#5eead4;--accent2:#f472b6;
+    --text:#e8eaf2;--muted:#9aa0be;--danger:#f87171;}
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
   html,body{margin:0;height:100%;background:var(--bg);color:var(--text);
     font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;overflow:hidden;}
   #stage{position:fixed;inset:0;display:flex;flex-direction:column;}
   #view{position:relative;flex:1;overflow:hidden;background:#000;display:flex;align-items:center;justify-content:center;}
   #canvas{display:block;touch-action:none;background:#000;}
-  #hint{position:absolute;top:0;left:0;right:0;padding:10px 14px;
-    background:linear-gradient(#000a,#0000);font-size:14px;line-height:1.35;
+  #hint{position:absolute;top:0;left:0;right:0;padding:9px 14px;
+    background:linear-gradient(#000a,#0000);font-size:13.5px;line-height:1.35;
     text-shadow:0 1px 3px #000;pointer-events:none;}
   #hint b{color:var(--accent);}
+  .badge{position:absolute;top:8px;right:10px;font-size:11px;color:var(--muted);
+    background:#0006;padding:4px 8px;border-radius:20px;pointer-events:none;}
   #bar{background:var(--panel);padding:10px 10px calc(10px + env(safe-area-inset-bottom));
     display:flex;flex-direction:column;gap:8px;box-shadow:0 -6px 20px #0006;}
-  .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
+  .row{display:flex;gap:8px;align-items:center;}
   button{flex:1;min-width:0;border:0;border-radius:12px;padding:12px 8px;font-size:14px;
     font-weight:600;color:#0b1020;background:var(--accent);cursor:pointer;}
   button.sec{background:#2a3050;color:var(--text);}
-  button.danger{background:transparent;color:var(--danger);border:1px solid #f8717155;font-weight:600;}
   button:active{transform:scale(.97);}
-  button:disabled{opacity:.4;}
+  .oct{flex:0 0 54px;font-size:20px;}
+  label{font-size:12px;color:var(--muted);}
+  input[type=range]{width:100%;accent-color:var(--accent);}
   .pill{background:#0d1122;border-radius:10px;padding:8px 10px;font-size:13px;color:var(--muted);
     display:flex;align-items:center;gap:8px;flex:1;justify-content:center;}
   .pill b{color:var(--text);}
-  label{font-size:12px;color:var(--muted);}
-  input[type=range]{width:100%;accent-color:var(--accent);}
-  select{background:#0d1122;color:var(--text);border:1px solid #2a3050;border-radius:10px;
-    padding:8px;font-size:14px;}
   #startScreen{position:absolute;inset:0;background:var(--bg);z-index:5;display:flex;
-    flex-direction:column;align-items:center;justify-content:center;gap:18px;padding:24px;text-align:center;}
+    flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:24px;text-align:center;}
   #startScreen h1{margin:0;font-size:26px;}
   #startScreen p{margin:0;color:var(--muted);max-width:340px;line-height:1.5;font-size:15px;}
   #startScreen button{flex:0;padding:14px 26px;font-size:16px;}
-  .badge{position:absolute;top:8px;right:10px;font-size:11px;color:var(--muted);
-    background:#0006;padding:4px 8px;border-radius:20px;pointer-events:none;}
   .hidden{display:none!important;}
-  .keyicon{font-size:40px;}
 </style>
 </head>
 <body>
@@ -53,401 +47,246 @@
     <canvas id="canvas"></canvas>
     <div id="hint"></div>
     <div class="badge" id="fps"></div>
-
     <div id="startScreen">
-      <div class="keyicon">🎹📄</div>
-      <h1>Piano de Papel</h1>
-      <p>Desenhe um teclado numa folha, apoie o celular apontando para ela e toque cobrindo cada tecla com o dedo.</p>
-      <p style="font-size:13px">Dica: deixe o celular firme (apoiado ou num suporte) e a folha bem iluminada.</p>
+      <div style="font-size:40px">🎹👣</div>
+      <h1>Piano na Tela</h1>
+      <p>O teclado aparece fixo na tela sobre a câmera. Aponte pro chão, posicione e cubra o ponto de cada tecla com o pé ou o dedo para tocar.</p>
       <button id="startBtn">Ligar a câmera</button>
       <p id="startErr" style="color:#f87171;font-size:13px;white-space:pre-wrap;max-width:340px;margin:0"></p>
+      <p style="opacity:.45;font-size:11px;margin:0">versão 4 · piano na tela</p>
     </div>
   </div>
 
   <div id="bar">
     <div class="row">
-      <div class="pill">Modo: <b id="modeLabel">—</b></div>
-      <div class="pill">Teclas: <b id="countLabel">0</b></div>
+      <div class="pill">Oitava: <b id="octLabel">4</b></div>
+      <div class="pill" id="playingPill">Nota: <b id="playingLabel">—</b></div>
     </div>
-
-    <div class="row" id="calibRow">
-      <label style="flex:1">Próxima nota
-        <select id="noteSelect"></select>
-      </label>
-      <label style="flex:1">Oitava
-        <select id="octSelect"></select>
-      </label>
-    </div>
-
     <div class="row">
       <label style="flex:1">Sensibilidade
         <input type="range" id="sens" min="15" max="90" value="42">
       </label>
     </div>
-
     <div class="row">
-      <button id="calibBtn" class="sec">Calibrar</button>
-      <button id="playBtn" disabled>Tocar</button>
+      <label style="flex:1;display:flex;align-items:center;gap:10px;color:var(--text)">
+        <input type="checkbox" id="mono" checked style="width:20px;height:20px;accent-color:var(--accent)">
+        Uma nota por vez (evita tocar duas)
+      </label>
     </div>
     <div class="row">
-      <button id="undoBtn" class="sec">Remover tecla</button>
-      <button id="resetBtn" class="danger">Limpar tudo</button>
+      <button class="sec oct" id="octDown">–</button>
+      <button class="sec" id="rebg">Refazer fundo</button>
+      <button class="sec oct" id="octUp">+</button>
     </div>
   </div>
 </div>
 
 <script>
-/* ============ Áudio (síntese de piano) ============ */
+/* ================= Áudio ================= */
 let audioCtx=null, masterGain=null;
 function initAudio(){
   if(audioCtx) return;
   audioCtx=new (window.AudioContext||window.webkitAudioContext)();
-  masterGain=audioCtx.createGain();
-  masterGain.gain.value=0.8;
+  masterGain=audioCtx.createGain(); masterGain.gain.value=0.85;
   masterGain.connect(audioCtx.destination);
 }
-const activeVoices={}; // id -> {osc:[], gain}
+const activeVoices={};
 function midiToFreq(m){return 440*Math.pow(2,(m-69)/12);}
-
-function noteOn(id, midi){
-  if(!audioCtx || activeVoices[id]) return;
-  const now=audioCtx.currentTime;
-  const freq=midiToFreq(midi);
-  const g=audioCtx.createGain();
-  g.connect(masterGain);
-  // envelope: ataque rápido, decaimento a um sustain (tipo piano segurado)
-  const peak=0.35, sustain=0.16;
-  g.gain.setValueAtTime(0.0001, now);
-  g.gain.exponentialRampToValueAtTime(peak, now+0.008);
-  g.gain.exponentialRampToValueAtTime(sustain, now+0.35);
-  // harmônicos para timbre mais rico
-  const partials=[[1,1.0],[2,0.35],[3,0.18],[4,0.09]];
-  const oscs=[];
+function noteOn(id,midi){
+  if(!audioCtx||activeVoices[id]) return;
+  const now=audioCtx.currentTime, freq=midiToFreq(midi);
+  const g=audioCtx.createGain(); g.connect(masterGain);
+  g.gain.setValueAtTime(0.0001,now);
+  g.gain.exponentialRampToValueAtTime(0.35,now+0.008);
+  g.gain.exponentialRampToValueAtTime(0.16,now+0.35);
+  const partials=[[1,1.0],[2,0.35],[3,0.18],[4,0.09]], oscs=[];
   partials.forEach(([mult,amp])=>{
-    const o=audioCtx.createOscillator();
-    o.type='triangle';
-    o.frequency.value=freq*mult;
-    const pg=audioCtx.createGain();
-    pg.gain.value=amp;
-    o.connect(pg); pg.connect(g);
-    o.start(now);
-    oscs.push(o);
+    const o=audioCtx.createOscillator(); o.type='triangle'; o.frequency.value=freq*mult;
+    const pg=audioCtx.createGain(); pg.gain.value=amp;
+    o.connect(pg); pg.connect(g); o.start(now); oscs.push(o);
   });
   activeVoices[id]={oscs,g};
 }
 function noteOff(id){
-  const v=activeVoices[id];
-  if(!v||!audioCtx) return;
+  const v=activeVoices[id]; if(!v||!audioCtx) return;
   const now=audioCtx.currentTime;
   v.g.gain.cancelScheduledValues(now);
-  v.g.gain.setValueAtTime(Math.max(v.g.gain.value,0.0001), now);
-  v.g.gain.exponentialRampToValueAtTime(0.0001, now+0.18);
+  v.g.gain.setValueAtTime(Math.max(v.g.gain.value,0.0001),now);
+  v.g.gain.exponentialRampToValueAtTime(0.0001,now+0.18);
   v.oscs.forEach(o=>o.stop(now+0.2));
   delete activeVoices[id];
 }
+function allOff(){ for(const k in activeVoices) noteOff(k); monoCurrent=null; }
 
-/* ============ Câmera + detecção ============ */
+/* ================= Câmera / detecção ================= */
 const canvas=document.getElementById('canvas');
 const ctx=canvas.getContext('2d',{willReadFrequently:true});
 const video=document.createElement('video');
-video.setAttribute('playsinline','');video.muted=true;
+video.setAttribute('playsinline',''); video.muted=true;
 
-let stream=null, running=false;
-let mode='idle';           // 'idle' | 'calib' | 'play'
-let zones=[];              // {x,y,midi,label,baseline:{r,g,b},pressed,lastChange}
-const SAMPLE=9;            // meio-lado da caixa de amostragem (px na resolução do canvas)
-let sensitivity=42;
+let stream=null, running=false, sensitivity=42, monoCurrent=null;
+const SAMPLE=10;
 
-const NOTE_NAMES=['Dó','Dó#','Ré','Ré#','Mi','Fá','Fá#','Sol','Sol#','Lá','Lá#','Si'];
-const NOTE_SHORT=['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
-const WHITE_SEQ=[0,2,4,5,7,9,11]; // índices das teclas brancas (Dó Ré Mi Fá Sol Lá Si)
+const WHITE=[0,2,4,5,7,9,11];
+const WNAME=['Dó','Ré','Mi','Fá','Sol','Lá','Si'];
+let octaveBase=4;
+const keys=WHITE.map((s,i)=>({i,semi:s,baseline:null,pressed:false,lastChange:0,delta:0,_snd:false,
+  x:0,y:0,x0:0,x1:0,top:0,bot:0}));
+function keyMidi(k){ return 12*(octaveBase+1)+k.semi; }
+function keyLabel(k){ return WNAME[k.i]+octaveBase; }
 
-/* preencher selects */
-const noteSelect=document.getElementById('noteSelect');
-const octSelect=document.getElementById('octSelect');
-NOTE_NAMES.forEach((n,i)=>{const o=document.createElement('option');o.value=i;o.textContent=n;noteSelect.appendChild(o);});
-for(let oc=2;oc<=6;oc++){const o=document.createElement('option');o.value=oc;o.textContent=oc;octSelect.appendChild(o);}
-octSelect.value=4;
-// posição inicial da sequência automática de brancas
-let autoWhiteIdx=0, autoOctave=4;
-
-function currentPickMidi(){
-  // usa o valor manual do seletor
-  return 12*(parseInt(octSelect.value)+1)+parseInt(noteSelect.value);
-}
-function labelFor(midi){
-  const n=midi%12, oc=Math.floor(midi/12)-1;
-  return NOTE_NAMES[n]+oc;
+function layout(){
+  const W=canvas.width, H=canvas.height;
+  const mx=Math.round(W*0.03), top=Math.round(H*0.12), bot=Math.round(H*0.94);
+  const kw=(W-2*mx)/keys.length;
+  const cy=Math.round(top+(bot-top)*0.62);
+  keys.forEach((k,i)=>{
+    k.x0=mx+i*kw; k.x1=k.x0+kw; k.top=top; k.bot=bot;
+    k.x=Math.round(k.x0+kw/2); k.y=cy;
+  });
 }
 
-/* iniciar câmera */
-function showErr(msg){
-  const el=document.getElementById('startErr');
-  if(el) el.textContent=msg;
-}
-let starting=false;
-async function start(){
-  if(starting) return;
-  starting=true;
-  showErr('Abrindo a câmera…');
-  try{ initAudio(); }catch(_){}
-
-  // contexto seguro? (HTTPS ou localhost) — sem isso a câmera nem existe
-  if(!window.isSecureContext || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
-    showErr('A câmera precisa de HTTPS. Abra o site por um endereço https:// '+
-            '(ou localhost). Endereço atual: '+location.protocol+'//'+location.host);
-    starting=false; return;
-  }
-
-  // tenta câmera traseira; se falhar, tenta qualquer câmera
-  try{
-    stream=await navigator.mediaDevices.getUserMedia({
-      video:{facingMode:{ideal:'environment'}}, audio:false });
-  }catch(e1){
-    try{
-      stream=await navigator.mediaDevices.getUserMedia({video:true, audio:false});
-    }catch(e2){
-      const n=e2.name||'';
-      let dica='';
-      if(n==='NotAllowedError') dica=' A permissão está bloqueada: toque no cadeado ao lado do endereço → Permissões → Câmera → Permitir, e recarregue.';
-      else if(n==='NotReadableError') dica=' Outra aba ou app está usando a câmera. Feche as outras abas e apps de câmera e tente de novo.';
-      else if(n==='NotFoundError') dica=' Nenhuma câmera encontrada neste aparelho.';
-      showErr('Falha ao abrir a câmera ('+(n||e2.message)+').'+dica);
-      starting=false; return;
-    }
-  }
-  showErr('');
-  starting=false;
-  video.srcObject=stream;
-  await video.play();
-  document.getElementById('startScreen').classList.add('hidden');
-  // resolução interna do canvas = tamanho do vídeo (limitado)
-  const vw=video.videoWidth||1280, vh=video.videoHeight||720;
-  const scale=Math.min(1, 640/vw);
-  canvas.width=Math.round(vw*scale);
-  canvas.height=Math.round(vh*scale);
-  fitCanvas();
-  window.addEventListener('resize',fitCanvas);
-  window.addEventListener('orientationchange',()=>setTimeout(fitCanvas,300));
-  running=true;
-  setMode('calib');
-  loop();
-}
-
-function fitCanvas(){
-  const view=document.getElementById('view');
-  const vwp=view.clientWidth, vhp=view.clientHeight;
-  if(!vwp||!vhp||!canvas.width) return;
-  const ar=canvas.width/canvas.height;
-  let w=vwp, h=vwp/ar;
-  if(h>vhp){h=vhp;w=vhp*ar;}
-  canvas.style.width=w+'px';
-  canvas.style.height=h+'px';
-}
-
-function setMode(m){
-  mode=m;
-  document.getElementById('modeLabel').textContent =
-    m==='calib'?'Calibração (toque nas teclas)': m==='play'?'Tocando':'Parado';
-  document.getElementById('calibRow').classList.toggle('hidden', m!=='calib');
-  document.getElementById('calibBtn').textContent = m==='calib'?'✔ Concluir':'Calibrar';
-  document.getElementById('playBtn').disabled = zones.length===0;
-  updateHint();
-}
-function updateHint(){
-  const h=document.getElementById('hint');
-  if(mode==='calib'){
-    h.innerHTML='<b>Calibração:</b> toque num espaço vazio para criar uma tecla; '+
-      '<b>arraste</b> um ponto para ajustar. O ponto tocado fica amarelo (selecionado) — '+
-      'mude a nota dele nos seletores, ou use "Remover tecla".';
-  }else if(mode==='play'){
-    h.innerHTML='<b>Tocando:</b> cubra uma tecla com o dedo para soar a nota. '+
-      'Mantenha o celular parado. Se disparar sozinho, baixe a sensibilidade.';
-  }else h.textContent='';
-}
-
-/* amostragem de cor média numa caixa */
 function sampleColor(cx,cy){
-  const x=Math.max(0,Math.min(canvas.width-1,cx))|0;
-  const y=Math.max(0,Math.min(canvas.height-1,cy))|0;
+  const x=Math.max(0,Math.min(canvas.width-1,cx))|0, y=Math.max(0,Math.min(canvas.height-1,cy))|0;
   const x0=Math.max(0,x-SAMPLE), y0=Math.max(0,y-SAMPLE);
-  const w=Math.min(canvas.width-x0, SAMPLE*2), hh=Math.min(canvas.height-y0, SAMPLE*2);
+  const w=Math.min(canvas.width-x0,SAMPLE*2), hh=Math.min(canvas.height-y0,SAMPLE*2);
   const d=ctx.getImageData(x0,y0,w,hh).data;
   let r=0,g=0,b=0,n=0;
   for(let i=0;i<d.length;i+=4){r+=d[i];g+=d[i+1];b+=d[i+2];n++;}
   return {r:r/n,g:g/n,b:b/n};
 }
-function colorDist(a,b){
-  const dr=a.r-b.r,dg=a.g-b.g,db=a.b-b.b;
-  return Math.sqrt(dr*dr+dg*dg+db*db);
-}
+function colorDist(a,b){const dr=a.r-b.r,dg=a.g-b.g,db=a.b-b.b;return Math.sqrt(dr*dr+dg*dg+db*db);}
 
-/* toque / arraste na tela */
-let dragging=null, selected=null, zoneSeq=0;
-const HIT=30; // raio de acerto (px do canvas) para pegar um ponto existente
-
-function toCanvas(ev){
-  const rect=canvas.getBoundingClientRect();
-  return {
-    x:(ev.clientX-rect.left)*(canvas.width/rect.width),
-    y:(ev.clientY-rect.top)*(canvas.height/rect.height)
-  };
-}
-function nearestZone(x,y){
-  let best=null,bd=HIT;
-  for(const z of zones){
-    const d=Math.hypot(z.x-x,z.y-y);
-    if(d<bd){bd=d;best=z;}
+/* ================= câmera ================= */
+function showErr(m){const el=document.getElementById('startErr'); if(el) el.textContent=m;}
+let starting=false;
+async function start(){
+  if(starting) return; starting=true; showErr('Abrindo a câmera…');
+  try{ initAudio(); }catch(_){}
+  if(!window.isSecureContext||!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia){
+    showErr('A câmera precisa de HTTPS. Abra por um endereço https:// (ou localhost). Atual: '+location.protocol+'//'+location.host);
+    starting=false; return;
   }
-  return best;
-}
-function syncSelectsToSelected(){
-  if(!selected) return;
-  noteSelect.value=selected.midi%12;
-  octSelect.value=Math.floor(selected.midi/12)-1;
-}
-
-canvas.addEventListener('pointerdown',ev=>{
-  if(mode!=='calib') return;
-  ev.preventDefault();
-  const p=toCanvas(ev);
-  const hit=nearestZone(p.x,p.y);
-  if(hit){
-    // seleciona e arrasta um ponto existente
-    selected=hit; dragging=hit; syncSelectsToSelected();
-  }else{
-    // cria uma nova tecla exatamente onde tocou
-    const midi=currentPickMidi();
-    const z={id:zoneSeq++,x:p.x,y:p.y,midi,label:labelFor(midi),
-      baseline:sampleColor(p.x,p.y),pressed:false,lastChange:0};
-    zones.push(z);
-    selected=z; dragging=z;
-    advanceAutoNote();
-    document.getElementById('countLabel').textContent=zones.length;
-    document.getElementById('playBtn').disabled=false;
+  try{ stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}},audio:false}); }
+  catch(e1){
+    try{ stream=await navigator.mediaDevices.getUserMedia({video:true,audio:false}); }
+    catch(e2){
+      const n=e2.name||''; let dica='';
+      if(n==='NotAllowedError') dica=' Permissão bloqueada: toque no cadeado ao lado do endereço → Permissões → Câmera → Permitir e recarregue.';
+      else if(n==='NotReadableError') dica=' Outra aba/app está usando a câmera. Feche-os e tente de novo.';
+      else if(n==='NotFoundError') dica=' Nenhuma câmera encontrada.';
+      showErr('Falha ao abrir a câmera ('+(n||e2.message)+').'+dica); starting=false; return;
+    }
   }
-});
-canvas.addEventListener('pointermove',ev=>{
-  if(!dragging||mode!=='calib') return;
-  ev.preventDefault();
-  const p=toCanvas(ev);
-  dragging.x=Math.max(0,Math.min(canvas.width,p.x));
-  dragging.y=Math.max(0,Math.min(canvas.height,p.y));
-  dragging.baseline=sampleColor(dragging.x,dragging.y);
-});
-function endDrag(){ dragging=null; }
-canvas.addEventListener('pointerup',endDrag);
-canvas.addEventListener('pointercancel',endDrag);
-canvas.addEventListener('pointerleave',endDrag);
-
-/* editar a nota do ponto selecionado pelos seletores */
-function applyNoteToSelected(){
-  if(selected){ selected.midi=currentPickMidi(); selected.label=labelFor(selected.midi); }
+  showErr(''); starting=false;
+  video.srcObject=stream; await video.play();
+  document.getElementById('startScreen').classList.add('hidden');
+  const vw=video.videoWidth||1280, vh=video.videoHeight||720;
+  const sc=Math.min(1,640/vw);
+  canvas.width=Math.round(vw*sc); canvas.height=Math.round(vh*sc);
+  fitCanvas(); layout();
+  keys.forEach(k=>k.baseline=null);
+  window.addEventListener('resize',()=>{fitCanvas();layout();});
+  window.addEventListener('orientationchange',()=>setTimeout(()=>{fitCanvas();layout();},300));
+  running=true; updateHint(); loop();
 }
-noteSelect.addEventListener('change',applyNoteToSelected);
-octSelect.addEventListener('change',applyNoteToSelected);
-
-function advanceAutoNote(){
-  // avança automaticamente pelas teclas brancas
-  autoWhiteIdx++;
-  if(autoWhiteIdx>=WHITE_SEQ.length){autoWhiteIdx=0;autoOctave++;if(autoOctave>6)autoOctave=6;}
-  noteSelect.value=WHITE_SEQ[autoWhiteIdx];
-  octSelect.value=autoOctave;
+function fitCanvas(){
+  const v=document.getElementById('view');
+  const vwp=v.clientWidth, vhp=v.clientHeight;
+  if(!vwp||!vhp||!canvas.width) return;
+  const ar=canvas.width/canvas.height; let w=vwp,h=vwp/ar;
+  if(h>vhp){h=vhp;w=vhp*ar;}
+  canvas.style.width=w+'px'; canvas.style.height=h+'px';
+}
+function updateHint(){
+  document.getElementById('hint').innerHTML=
+    '<b>Toque no chão:</b> cubra o ponto branco de cada tecla com o pé/dedo. '+
+    'Com "uma nota por vez", se cobrir duas só soa a mais coberta. Use "Refazer fundo" depois de posicionar.';
 }
 
-/* loop principal */
-let lastT=performance.now(), frames=0, fpsT=0;
+/* ================= loop ================= */
+let frames=0,fpsT=0;
 function loop(){
   if(!running) return;
   ctx.drawImage(video,0,0,canvas.width,canvas.height);
-
+  layout();
   const now=performance.now();
-  const pressThresh=sensitivity;                 // limiar para "coberto"
-  const releaseThresh=Math.max(8,sensitivity*0.55); // histerese
+  const pressThresh=sensitivity, releaseThresh=Math.max(8,sensitivity*0.55);
+  const mono=document.getElementById('mono').checked;
 
-  for(const z of zones){
-    const c=sampleColor(z.x,z.y);
-    const dist=colorDist(c,z.baseline);
-    if(!z.pressed){
-      // adapta baseline devagar quando solto (compensa mudança de luz)
-      z.baseline.r+= (c.r-z.baseline.r)*0.04;
-      z.baseline.g+= (c.g-z.baseline.g)*0.04;
-      z.baseline.b+= (c.b-z.baseline.b)*0.04;
-      if(dist>pressThresh && now-z.lastChange>50){
-        z.pressed=true; z.lastChange=now;
-        if(mode==='play') noteOn('z'+z.id, z.midi);
-      }
+  for(const k of keys){
+    const c=sampleColor(k.x,k.y);
+    if(!k.baseline){ k.baseline={r:c.r,g:c.g,b:c.b}; }
+    const dist=colorDist(c,k.baseline);
+    k.delta=dist; k._snd=false;
+    if(!k.pressed){
+      k.baseline.r+=(c.r-k.baseline.r)*0.04; k.baseline.g+=(c.g-k.baseline.g)*0.04; k.baseline.b+=(c.b-k.baseline.b)*0.04;
+      if(dist>pressThresh && now-k.lastChange>50){k.pressed=true;k.lastChange=now;}
     }else{
-      if(dist<releaseThresh && now-z.lastChange>50){
-        z.pressed=false; z.lastChange=now;
-        if(mode==='play') noteOff('z'+z.id);
-      }
+      if(dist<releaseThresh && now-k.lastChange>50){k.pressed=false;k.lastChange=now;}
     }
-    drawZone(z);
   }
 
-  // fps
+  let playingLabel='—';
+  if(mono){
+    let target=null,bd=0;
+    for(const k of keys){ if(k.pressed && k.delta>bd){bd=k.delta;target=k;} }
+    const tid=target?'k'+target.i:null;
+    if(tid!==monoCurrent){ if(monoCurrent) noteOff(monoCurrent); if(tid) noteOn(tid,keyMidi(target)); monoCurrent=tid; }
+    if(target){ target._snd=true; playingLabel=keyLabel(target); }
+  }else{
+    for(const k of keys){
+      const id='k'+k.i;
+      if(k.pressed && !activeVoices[id]) noteOn(id,keyMidi(k));
+      else if(!k.pressed && activeVoices[id]) noteOff(id);
+      k._snd=k.pressed;
+      if(k._snd) playingLabel=keyLabel(k);
+    }
+  }
+  document.getElementById('playingLabel').textContent=playingLabel;
+
+  drawKeyboard();
+
   frames++;
   if(now-fpsT>1000){document.getElementById('fps').textContent=frames+' fps';frames=0;fpsT=now;}
   requestAnimationFrame(loop);
 }
 
-function drawZone(z){
-  const r=HIT*0.7;
-  ctx.lineWidth=3;
-  if(z.pressed){
-    ctx.fillStyle='rgba(244,114,182,0.55)'; ctx.strokeStyle='#f472b6';
-  }else if(z===selected && mode==='calib'){
-    ctx.fillStyle='rgba(250,204,21,0.20)'; ctx.strokeStyle='#facc15';
-  }else{
-    ctx.fillStyle='rgba(94,234,212,0.15)'; ctx.strokeStyle='#5eead4';
+function drawKeyboard(){
+  ctx.lineWidth=2; ctx.textAlign='center';
+  for(const k of keys){
+    if(k._snd){ ctx.fillStyle='rgba(244,114,182,0.28)'; ctx.strokeStyle='#f472b6'; }
+    else if(k.pressed){ ctx.fillStyle='rgba(148,163,184,0.22)'; ctx.strokeStyle='#94a3b8'; }
+    else { ctx.fillStyle='rgba(244,246,255,0.14)'; ctx.strokeStyle='rgba(255,255,255,0.7)'; }
+    roundRect(k.x0+2,k.top,(k.x1-k.x0)-4,k.bot-k.top,10); ctx.fill(); ctx.stroke();
+    ctx.fillStyle='#fff'; ctx.font='bold 15px system-ui';
+    ctx.fillText(keyLabel(k), k.x, k.bot-14);
+    const r=SAMPLE+8;
+    if(k._snd){ ctx.fillStyle='rgba(244,114,182,0.6)'; ctx.strokeStyle='#f472b6'; }
+    else { ctx.fillStyle='rgba(255,255,255,0.18)'; ctx.strokeStyle='#ffffff'; }
+    ctx.lineWidth=3; ctx.beginPath(); ctx.arc(k.x,k.y,r,0,Math.PI*2); ctx.fill(); ctx.stroke();
+    ctx.fillStyle=k._snd?'#fff':'#5eead4'; ctx.beginPath(); ctx.arc(k.x,k.y,4,0,Math.PI*2); ctx.fill();
+    ctx.lineWidth=2;
   }
-  ctx.beginPath();ctx.arc(z.x,z.y,r,0,Math.PI*2);ctx.fill();ctx.stroke();
-  // ponto central (mira exata)
-  ctx.fillStyle = z.pressed?'#fff':(z===selected&&mode==='calib'?'#facc15':'#5eead4');
-  ctx.beginPath();ctx.arc(z.x,z.y,3,0,Math.PI*2);ctx.fill();
-  ctx.fillStyle='#fff';
-  ctx.font='bold 13px system-ui';
-  ctx.textAlign='center';
-  ctx.fillText(z.label, z.x, z.y-r-5);
+}
+function roundRect(x,y,w,h,r){
+  ctx.beginPath();
+  ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r);
+  ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath();
 }
 
-/* botões */
+/* ================= controles ================= */
+function setOctave(o){
+  octaveBase=Math.max(1,Math.min(6,o));
+  document.getElementById('octLabel').textContent=octaveBase;
+  allOff();
+}
 document.getElementById('startBtn').onclick=start;
-document.getElementById('calibBtn').onclick=()=>{
-  if(mode==='calib'){
-    if(zones.length===0){alert('Adicione ao menos uma tecla tocando na tela.');return;}
-    selected=null; dragging=null;
-    setMode('play');
-  }else{
-    // volta a calibrar
-    for(const k in activeVoices) noteOff(k);
-    setMode('calib');
-  }
-};
-document.getElementById('playBtn').onclick=()=>{ initAudio(); if(audioCtx.state==='suspended')audioCtx.resume(); selected=null; dragging=null; setMode('play'); };
-document.getElementById('undoBtn').onclick=()=>{
-  // remove a tecla SELECIONADA (ou a última, se nenhuma estiver selecionada)
-  let z = selected || zones[zones.length-1];
-  if(!z) return;
-  noteOff('z'+z.id);
-  zones.splice(zones.indexOf(z),1);
-  selected=null; dragging=null;
-  document.getElementById('countLabel').textContent=zones.length;
-  document.getElementById('playBtn').disabled=zones.length===0;
-};
-document.getElementById('resetBtn').onclick=()=>{
-  if(!confirm('Apagar todas as teclas calibradas?'))return;
-  for(const k in activeVoices) noteOff(k);
-  zones=[]; selected=null; dragging=null; autoWhiteIdx=0; autoOctave=4;
-  noteSelect.value=WHITE_SEQ[0]; octSelect.value=4;
-  document.getElementById('countLabel').textContent=0;
-  setMode('calib');
-};
+document.getElementById('octDown').onclick=()=>setOctave(octaveBase-1);
+document.getElementById('octUp').onclick=()=>setOctave(octaveBase+1);
+document.getElementById('rebg').onclick=()=>{ allOff(); keys.forEach(k=>{k.baseline=null;k.pressed=false;}); };
 document.getElementById('sens').oninput=e=>{sensitivity=parseInt(e.target.value);};
-
-// inicia com a primeira nota da sequência
-noteSelect.value=WHITE_SEQ[0]; octSelect.value=4;
+document.getElementById('mono').onchange=allOff;
 </script>
 </body>
 </html>
