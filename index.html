@@ -53,7 +53,7 @@
       <p>Aponte a câmera pro chão. Cada bolinha é um sensor: cobriu a bolinha com o pé/dedo, a nota toca. Use "Girar 90°" para posicionar.</p>
       <button id="startBtn">Ligar a câmera</button>
       <p id="startErr" style="color:#f87171;font-size:13px;white-space:pre-wrap;max-width:360px;margin:0"></p>
-      <p style="opacity:.45;font-size:11px;margin:0">versão 8 · sensor por bolinha</p>
+      <p style="opacity:.45;font-size:11px;margin:0">versão 10 · bolinhas iguais + base na borda</p>
     </div>
   </div>
 
@@ -64,7 +64,7 @@
     </div>
     <div class="row">
       <label style="flex:1">Sensibilidade
-        <input type="range" id="sens" min="15" max="120" value="45">
+        <input type="range" id="sens" min="15" max="160" value="45">
       </label>
     </div>
     <div class="row">
@@ -159,11 +159,18 @@ function layout(){
   const th=rotStep*Math.PI/2, cos=Math.round(Math.cos(th)), sin=Math.round(Math.sin(th));
   const bw=(rotStep%2===0)?LW:LH, bh=(rotStep%2===0)?LH:LW;
   const scale=Math.min(W*0.97/bw, H*0.90/bh);
-  board={scale,cos,sin,cx:W/2,cy:H/2};
+  // ancora a BASE das teclas junto à borda (embaixo/lateral conforme o giro)
+  const halfBase=(LH/2)*scale, m=Math.round(Math.min(W,H)*0.02)+4;
+  let cx=W/2, cy=H/2;
+  if(rotStep===0) cy=H-m-halfBase;        // base embaixo
+  else if(rotStep===2) cy=m+halfBase;     // base em cima
+  else if(rotStep===1) cx=m+halfBase;     // base à esquerda
+  else if(rotStep===3) cx=W-m-halfBase;   // base à direita
+  board={scale,cos,sin,cx,cy};
   for(const k of keys){
     const t=Tp(k.ltx,k.lty); k.x=t.x; k.y=t.y;
-    k.rk=(k.black?0.30:0.42)*scale;
-    k.sr=Math.max(5, Math.round(k.rk*0.85));
+    k.rk=0.285*scale;                              // todas as bolinhas iguais (~95% da preta antiga)
+    k.sr=Math.max(5, Math.round(k.rk*0.85));       // raio de amostragem dentro da bolinha
     k.c0=Tp(k.lx0,k.ly0); k.c1=Tp(k.lx1,k.ly0); k.c2=Tp(k.lx1,k.ly1); k.c3=Tp(k.lx0,k.ly1);
   }
 }
@@ -207,7 +214,7 @@ function resetBaselines(){ keys.forEach(k=>{k.baseline=null;k.pressed=false;}); 
 function onResize(){ sizeCanvas(); layout(); resetBaselines(); }
 function updateHint(){
   document.getElementById('hint').innerHTML=
-    '<b>Cada bolinha é um sensor.</b> Cobriu a bolinha com o pé/dedo = toca. Fique parado e toque "Refazer fundo".';
+    '<b>Cada bolinha é um sensor.</b> Cobriu a bolinha = toca. Sombra leve é ignorada. Fique parado e toque "Refazer fundo".';
 }
 
 function drawVideoCover(){
@@ -231,7 +238,17 @@ function sampleCircle(cx,cy,rad){
   if(!n) return {r:0,g:0,b:0};
   return {r:r/n,g:g/n,b:b/n};
 }
-function colorDist(a,b){const dr=a.r-b.r,dg=a.g-b.g,db=a.b-b.b;return Math.sqrt(dr*dr+dg*dg+db*db);}
+function lum(c){return 0.299*c.r+0.587*c.g+0.114*c.b;}
+/* pontuação de mudança com SUPRESSÃO DE SOMBRA */
+let shadowTol=0.50;
+function changeScore(cur,base){
+  const bl=lum(base)+1, cl=lum(cur)+1, ratio=cl/bl;
+  const bs=base.r+base.g+base.b+1, cs=cur.r+cur.g+cur.b+1;
+  const chroma=(Math.abs(cur.r/cs-base.r/bs)+Math.abs(cur.g/cs-base.g/bs)+Math.abs(cur.b/cs-base.b/bs))*255;
+  const darkBeyond=Math.max(0,(1-ratio)-shadowTol)*255/(1-shadowTol);
+  const bright=Math.max(0,ratio-1.15)*255;
+  return Math.max(chroma*1.6, darkBeyond, bright);
+}
 
 /* ================= loop ================= */
 let frames=0,fpsT=0;
@@ -246,13 +263,13 @@ function loop(){
   for(const k of keys){
     const c=sampleCircle(k.x,k.y,k.sr);
     if(!k.baseline){ k.baseline={r:c.r,g:c.g,b:c.b}; }
-    const dist=colorDist(c,k.baseline);
-    k.delta=dist; k._snd=false;
+    const score=changeScore(c,k.baseline);
+    k.delta=score; k._snd=false;
     if(!k.pressed){
       k.baseline.r+=(c.r-k.baseline.r)*0.03; k.baseline.g+=(c.g-k.baseline.g)*0.03; k.baseline.b+=(c.b-k.baseline.b)*0.03;
-      if(dist>pressThr && now-k.lastChange>45){k.pressed=true;k.lastChange=now;}
+      if(score>pressThr && now-k.lastChange>45){k.pressed=true;k.lastChange=now;}
     }else{
-      if(dist<releaseThr && now-k.lastChange>45){k.pressed=false;k.lastChange=now;}
+      if(score<releaseThr && now-k.lastChange>45){k.pressed=false;k.lastChange=now;}
     }
   }
 
@@ -284,30 +301,31 @@ function loop(){
 function poly(k){ ctx.beginPath(); ctx.moveTo(k.c0.x,k.c0.y); ctx.lineTo(k.c1.x,k.c1.y);
   ctx.lineTo(k.c2.x,k.c2.y); ctx.lineTo(k.c3.x,k.c3.y); ctx.closePath(); }
 function drawKeyboard(){
-  ctx.lineWidth=2;
   for(const k of keys){ if(k.black) continue;
-    ctx.fillStyle = k._snd?'rgba(244,114,182,0.72)':'rgba(245,247,255,0.58)';
-    ctx.strokeStyle='rgba(30,34,52,0.85)';
+    ctx.fillStyle = k._snd?'rgba(244,114,182,0.85)':'rgba(248,250,255,0.74)';
+    ctx.strokeStyle='#0b0d16'; ctx.lineWidth=3;
     poly(k); ctx.fill(); ctx.stroke();
-    drawLabel(k,'#1a1e33'); drawTarget(k);
+    drawLabel(k,'#12141c'); drawTarget(k);
   }
   for(const k of keys){ if(!k.black) continue;
-    ctx.fillStyle = k._snd?'rgba(244,114,182,0.80)':'rgba(70,74,86,0.72)';
-    ctx.strokeStyle='rgba(255,255,255,0.35)';
+    ctx.fillStyle = k._snd?'rgba(244,114,182,0.90)':'rgba(38,42,54,0.86)';
+    ctx.strokeStyle='rgba(255,255,255,0.75)'; ctx.lineWidth=2.5;
     poly(k); ctx.fill(); ctx.stroke();
-    drawLabel(k,'#e8eaf2'); drawTarget(k);
+    drawLabel(k,'#f4f6ff'); drawTarget(k);
   }
 }
 function drawLabel(k,color){
-  ctx.fillStyle=color; ctx.textAlign='center'; ctx.textBaseline='middle';
-  ctx.font='bold '+(k.black?11:14)+'px system-ui';
-  ctx.fillText(keyLabel(k), k.x, k.y - k.rk - (k.black?8:10));
+  ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.font='bold '+(k.black?12:15)+'px system-ui';
+  const y=k.y - k.rk - (k.black?8:10);
+  ctx.lineWidth=3; ctx.strokeStyle='rgba(0,0,0,0.55)'; ctx.strokeText(keyLabel(k),k.x,y);
+  ctx.fillStyle=color; ctx.fillText(keyLabel(k), k.x, y);
 }
 function drawTarget(k){
-  ctx.lineWidth=3;
-  ctx.fillStyle = k._snd?'rgba(244,114,182,0.50)':'rgba(94,234,212,0.14)';
-  ctx.strokeStyle = k._snd?'#f472b6':'#5eead4';
-  ctx.beginPath(); ctx.arc(k.x,k.y,k.rk,0,Math.PI*2); ctx.fill(); ctx.stroke();
+  ctx.beginPath(); ctx.arc(k.x,k.y,k.rk,0,Math.PI*2);
+  ctx.fillStyle = k._snd?'rgba(244,114,182,0.55)':'rgba(0,0,0,0.28)'; ctx.fill();
+  ctx.lineWidth=5; ctx.strokeStyle='rgba(0,0,0,0.55)'; ctx.stroke();
+  ctx.lineWidth=2.5; ctx.strokeStyle = k._snd?'#f472b6':'#5eead4'; ctx.stroke();
   ctx.fillStyle=k._snd?'#fff':'#5eead4'; ctx.beginPath(); ctx.arc(k.x,k.y,4,0,Math.PI*2); ctx.fill();
 }
 
