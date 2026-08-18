@@ -14,29 +14,33 @@
   #stage{position:fixed;inset:0;display:flex;flex-direction:column;}
   #view{position:relative;flex:1;overflow:hidden;background:#000;display:flex;align-items:center;justify-content:center;}
   #canvas{display:block;touch-action:none;background:#000;}
-  #hint{position:absolute;top:0;left:0;right:0;padding:9px 14px;
-    background:linear-gradient(#000a,#0000);font-size:13.5px;line-height:1.35;
+  #hint{position:absolute;top:0;left:0;right:0;padding:8px 14px;
+    background:linear-gradient(#000a,#0000);font-size:13px;line-height:1.3;
     text-shadow:0 1px 3px #000;pointer-events:none;}
   #hint b{color:var(--accent);}
   .badge{position:absolute;top:8px;right:10px;font-size:11px;color:var(--muted);
     background:#0006;padding:4px 8px;border-radius:20px;pointer-events:none;}
-  #bar{background:var(--panel);padding:10px 10px calc(10px + env(safe-area-inset-bottom));
-    display:flex;flex-direction:column;gap:8px;box-shadow:0 -6px 20px #0006;}
+  #rotate{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+    background:#000b;color:#fff;padding:14px 18px;border-radius:14px;font-size:16px;
+    text-align:center;pointer-events:none;z-index:3;display:none;max-width:80%;}
+  @media (orientation:portrait){#rotate{display:block}}
+  #bar{background:var(--panel);padding:8px 10px calc(8px + env(safe-area-inset-bottom));
+    display:flex;flex-direction:column;gap:7px;box-shadow:0 -6px 20px #0006;}
   .row{display:flex;gap:8px;align-items:center;}
-  button{flex:1;min-width:0;border:0;border-radius:12px;padding:12px 8px;font-size:14px;
+  button{flex:1;min-width:0;border:0;border-radius:12px;padding:11px 8px;font-size:14px;
     font-weight:600;color:#0b1020;background:var(--accent);cursor:pointer;}
   button.sec{background:#2a3050;color:var(--text);}
   button:active{transform:scale(.97);}
   .oct{flex:0 0 54px;font-size:20px;}
   label{font-size:12px;color:var(--muted);}
   input[type=range]{width:100%;accent-color:var(--accent);}
-  .pill{background:#0d1122;border-radius:10px;padding:8px 10px;font-size:13px;color:var(--muted);
+  .pill{background:#0d1122;border-radius:10px;padding:7px 10px;font-size:13px;color:var(--muted);
     display:flex;align-items:center;gap:8px;flex:1;justify-content:center;}
   .pill b{color:var(--text);}
   #startScreen{position:absolute;inset:0;background:var(--bg);z-index:5;display:flex;
     flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:24px;text-align:center;}
   #startScreen h1{margin:0;font-size:26px;}
-  #startScreen p{margin:0;color:var(--muted);max-width:340px;line-height:1.5;font-size:15px;}
+  #startScreen p{margin:0;color:var(--muted);max-width:360px;line-height:1.5;font-size:15px;}
   #startScreen button{flex:0;padding:14px 26px;font-size:16px;}
   .hidden{display:none!important;}
 </style>
@@ -47,20 +51,21 @@
     <canvas id="canvas"></canvas>
     <div id="hint"></div>
     <div class="badge" id="fps"></div>
+    <div id="rotate">↻ Vire o celular na horizontal<br><span style="font-size:13px;opacity:.8">as teclas ficam bem maiores</span></div>
     <div id="startScreen">
       <div style="font-size:40px">🎹👣</div>
       <h1>Piano na Tela</h1>
-      <p>O teclado aparece fixo na tela sobre a câmera. Aponte pro chão, posicione e cubra o ponto de cada tecla com o pé ou o dedo para tocar.</p>
+      <p>Vire o celular na horizontal, aponte pro chão e cubra o ponto de cada tecla com o pé ou o dedo. Agora com teclas pretas.</p>
       <button id="startBtn">Ligar a câmera</button>
-      <p id="startErr" style="color:#f87171;font-size:13px;white-space:pre-wrap;max-width:340px;margin:0"></p>
-      <p style="opacity:.45;font-size:11px;margin:0">versão 4 · piano na tela</p>
+      <p id="startErr" style="color:#f87171;font-size:13px;white-space:pre-wrap;max-width:360px;margin:0"></p>
+      <p style="opacity:.45;font-size:11px;margin:0">versão 5 · horizontal + teclas pretas</p>
     </div>
   </div>
 
   <div id="bar">
     <div class="row">
       <div class="pill">Oitava: <b id="octLabel">4</b></div>
-      <div class="pill" id="playingPill">Nota: <b id="playingLabel">—</b></div>
+      <div class="pill">Nota: <b id="playingLabel">—</b></div>
     </div>
     <div class="row">
       <label style="flex:1">Sensibilidade
@@ -126,24 +131,42 @@ video.setAttribute('playsinline',''); video.muted=true;
 
 let stream=null, running=false, sensitivity=42, monoCurrent=null;
 const SAMPLE=10;
-
-const WHITE=[0,2,4,5,7,9,11];
-const WNAME=['Dó','Ré','Mi','Fá','Sol','Lá','Si'];
 let octaveBase=4;
-const keys=WHITE.map((s,i)=>({i,semi:s,baseline:null,pressed:false,lastChange:0,delta:0,_snd:false,
-  x:0,y:0,x0:0,x1:0,top:0,bot:0}));
-function keyMidi(k){ return 12*(octaveBase+1)+k.semi; }
-function keyLabel(k){ return WNAME[k.i]+octaveBase; }
 
+/* modelo do teclado: 7 brancas + 5 pretas */
+const WHITE=[{semi:0,name:'Dó'},{semi:2,name:'Ré'},{semi:4,name:'Mi'},
+             {semi:5,name:'Fá'},{semi:7,name:'Sol'},{semi:9,name:'Lá'},{semi:11,name:'Si'}];
+const BLACK=[{semi:1,after:0,name:'Dó#'},{semi:3,after:1,name:'Ré#'},
+             {semi:6,after:3,name:'Fá#'},{semi:8,after:4,name:'Sol#'},{semi:10,after:5,name:'Lá#'}];
+const keys=[];
+WHITE.forEach((w,i)=>keys.push({id:'w'+i,semi:w.semi,name:w.name,black:false,wi:i,
+  baseline:null,pressed:false,lastChange:0,delta:0,_snd:false,x:0,y:0}));
+BLACK.forEach((b,j)=>keys.push({id:'b'+j,semi:b.semi,name:b.name,black:true,after:b.after,
+  baseline:null,pressed:false,lastChange:0,delta:0,_snd:false,x:0,y:0}));
+function keyMidi(k){ return 12*(octaveBase+1)+k.semi; }
+function keyLabel(k){ return k.name+octaveBase; }
+
+/* geometria (recalcula por frame) */
+let geo={};
 function layout(){
   const W=canvas.width, H=canvas.height;
-  const mx=Math.round(W*0.03), top=Math.round(H*0.12), bot=Math.round(H*0.94);
-  const kw=(W-2*mx)/keys.length;
-  const cy=Math.round(top+(bot-top)*0.62);
-  keys.forEach((k,i)=>{
-    k.x0=mx+i*kw; k.x1=k.x0+kw; k.top=top; k.bot=bot;
-    k.x=Math.round(k.x0+kw/2); k.y=cy;
-  });
+  const mx=Math.round(W*0.025), top=Math.round(H*0.10), bot=Math.round(H*0.96);
+  const ww=(W-2*mx)/7;
+  const wl=top+(bot-top)*0.74;
+  const bh=top+(bot-top)*0.58;
+  const bl=top+(bot-top)*0.30;
+  const bw=ww*0.62;
+  geo={W,H,mx,top,bot,ww,wl,bh,bl,bw};
+  for(const k of keys){
+    if(!k.black){
+      k.x0=mx+k.wi*ww; k.x1=k.x0+ww;
+      k.x=Math.round(k.x0+ww/2); k.y=Math.round(wl);
+    }else{
+      const cx=mx+(k.after+1)*ww;
+      k.x0=cx-bw/2; k.x1=cx+bw/2;
+      k.x=Math.round(cx); k.y=Math.round(bl);
+    }
+  }
 }
 
 function sampleColor(cx,cy){
@@ -182,7 +205,7 @@ async function start(){
   video.srcObject=stream; await video.play();
   document.getElementById('startScreen').classList.add('hidden');
   const vw=video.videoWidth||1280, vh=video.videoHeight||720;
-  const sc=Math.min(1,640/vw);
+  const sc=Math.min(1,720/vw);
   canvas.width=Math.round(vw*sc); canvas.height=Math.round(vh*sc);
   fitCanvas(); layout();
   keys.forEach(k=>k.baseline=null);
@@ -200,8 +223,8 @@ function fitCanvas(){
 }
 function updateHint(){
   document.getElementById('hint').innerHTML=
-    '<b>Toque no chão:</b> cubra o ponto branco de cada tecla com o pé/dedo. '+
-    'Com "uma nota por vez", se cobrir duas só soa a mais coberta. Use "Refazer fundo" depois de posicionar.';
+    '<b>Cubra o ponto</b> de cada tecla com o pé/dedo. Pretas: alvo em cima · brancas: embaixo. '+
+    '"Refazer fundo" após posicionar.';
 }
 
 /* ================= loop ================= */
@@ -231,14 +254,13 @@ function loop(){
   if(mono){
     let target=null,bd=0;
     for(const k of keys){ if(k.pressed && k.delta>bd){bd=k.delta;target=k;} }
-    const tid=target?'k'+target.i:null;
+    const tid=target?target.id:null;
     if(tid!==monoCurrent){ if(monoCurrent) noteOff(monoCurrent); if(tid) noteOn(tid,keyMidi(target)); monoCurrent=tid; }
     if(target){ target._snd=true; playingLabel=keyLabel(target); }
   }else{
     for(const k of keys){
-      const id='k'+k.i;
-      if(k.pressed && !activeVoices[id]) noteOn(id,keyMidi(k));
-      else if(!k.pressed && activeVoices[id]) noteOff(id);
+      if(k.pressed && !activeVoices[k.id]) noteOn(k.id,keyMidi(k));
+      else if(!k.pressed && activeVoices[k.id]) noteOff(k.id);
       k._snd=k.pressed;
       if(k._snd) playingLabel=keyLabel(k);
     }
@@ -253,21 +275,31 @@ function loop(){
 }
 
 function drawKeyboard(){
-  ctx.lineWidth=2; ctx.textAlign='center';
-  for(const k of keys){
+  const g=geo;
+  ctx.textAlign='center';
+  for(const k of keys){ if(k.black) continue;
     if(k._snd){ ctx.fillStyle='rgba(244,114,182,0.28)'; ctx.strokeStyle='#f472b6'; }
     else if(k.pressed){ ctx.fillStyle='rgba(148,163,184,0.22)'; ctx.strokeStyle='#94a3b8'; }
-    else { ctx.fillStyle='rgba(244,246,255,0.14)'; ctx.strokeStyle='rgba(255,255,255,0.7)'; }
-    roundRect(k.x0+2,k.top,(k.x1-k.x0)-4,k.bot-k.top,10); ctx.fill(); ctx.stroke();
-    ctx.fillStyle='#fff'; ctx.font='bold 15px system-ui';
-    ctx.fillText(keyLabel(k), k.x, k.bot-14);
-    const r=SAMPLE+8;
-    if(k._snd){ ctx.fillStyle='rgba(244,114,182,0.6)'; ctx.strokeStyle='#f472b6'; }
-    else { ctx.fillStyle='rgba(255,255,255,0.18)'; ctx.strokeStyle='#ffffff'; }
-    ctx.lineWidth=3; ctx.beginPath(); ctx.arc(k.x,k.y,r,0,Math.PI*2); ctx.fill(); ctx.stroke();
-    ctx.fillStyle=k._snd?'#fff':'#5eead4'; ctx.beginPath(); ctx.arc(k.x,k.y,4,0,Math.PI*2); ctx.fill();
-    ctx.lineWidth=2;
+    else { ctx.fillStyle='rgba(244,246,255,0.13)'; ctx.strokeStyle='rgba(255,255,255,0.65)'; }
+    ctx.lineWidth=2; roundRect(k.x0+2,g.top,(k.x1-k.x0)-4,g.bot-g.top,10); ctx.fill(); ctx.stroke();
+    ctx.fillStyle='#fff'; ctx.font='bold 15px system-ui'; ctx.fillText(keyLabel(k),k.x,g.bot-12);
+    drawTarget(k,false);
   }
+  for(const k of keys){ if(!k.black) continue;
+    if(k._snd){ ctx.fillStyle='rgba(244,114,182,0.55)'; ctx.strokeStyle='#f472b6'; }
+    else if(k.pressed){ ctx.fillStyle='rgba(120,130,150,0.55)'; ctx.strokeStyle='#94a3b8'; }
+    else { ctx.fillStyle='rgba(11,13,22,0.62)'; ctx.strokeStyle='rgba(255,255,255,0.35)'; }
+    ctx.lineWidth=2; roundRect(k.x0,g.top,k.x1-k.x0,g.bh-g.top,7); ctx.fill(); ctx.stroke();
+    ctx.fillStyle='#e8eaf2'; ctx.font='bold 12px system-ui'; ctx.fillText(k.name+octaveBase,k.x,g.bl-22);
+    drawTarget(k,true);
+  }
+}
+function drawTarget(k,black){
+  const r=black?SAMPLE+5:SAMPLE+8;
+  if(k._snd){ ctx.fillStyle='rgba(244,114,182,0.6)'; ctx.strokeStyle='#f472b6'; }
+  else { ctx.fillStyle='rgba(94,234,212,0.18)'; ctx.strokeStyle=black?'#5eead4':'#ffffff'; }
+  ctx.lineWidth=3; ctx.beginPath(); ctx.arc(k.x,k.y,r,0,Math.PI*2); ctx.fill(); ctx.stroke();
+  ctx.fillStyle=k._snd?'#fff':'#5eead4'; ctx.beginPath(); ctx.arc(k.x,k.y,4,0,Math.PI*2); ctx.fill();
 }
 function roundRect(x,y,w,h,r){
   ctx.beginPath();
